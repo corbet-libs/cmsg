@@ -20,7 +20,7 @@ include = [
 ]
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 cbrd = { git = "https://github.com/corbet-libs/cbrd", branch = "main" }

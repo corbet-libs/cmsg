@@ -17,3 +17,8 @@ manifest; a changed, exercised, missing or branch-bearing exception fails.
 
 Native and browser artifacts remain separate. Passing local vectors cannot
 establish live network, admission, restore or full integration acceptance.
+
+These Rust composition libraries export no standalone C or JavaScript ABI. They
+build as rlibs on native and Wasm; an embedding application owns its eventual
+exported module. A standalone instrumented cdylib would link before the test-only
+profiling runtime and is not used for the actual browser vector harness.
