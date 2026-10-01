@@ -392,4 +392,39 @@ mod tests {
             StatusCode::SERVICE_UNAVAILABLE
         );
     }
+    #[tokio::test]
+    async fn rechecks_authority_after_body_completion() {
+        let (state, token) = paired();
+        let revoked = ClientToken::from_protected_transport(Zeroizing::new(
+            token.expose_for_transport().as_bytes().to_vec(),
+        ))
+        .unwrap();
+        let control = state.door.clone();
+        let body = Body::from_stream(stream::once(async move {
+            control.lock().unwrap().revoke(&revoked);
+            Ok::<_, std::io::Error>(Bytes::from_static(
+                br#"{"action":"runtime.status","version":1,"body":{}}"#,
+            ))
+        }));
+        assert_error(
+            dispatch(state.clone(), None, request(&token, body)).await,
+            ErrorCode::Unauthorized,
+        )
+        .await;
+        let (state, token) = paired();
+        let control = state.door.clone();
+        let body = Body::from_stream(stream::once(async move {
+            let _ = std::thread::spawn(move || {
+                let _guard = control.lock().unwrap();
+                panic!("trusted embedding failure");
+            })
+            .join();
+            Ok::<_, std::io::Error>(Bytes::from_static(b"{}"))
+        }));
+        assert_error(
+            dispatch(state, None, request(&token, body)).await,
+            ErrorCode::Unavailable,
+        )
+        .await;
+    }
 }

@@ -245,6 +245,7 @@ fn configuration_refuses_cross_role_origins_and_non_origins() {
         "http://member.example",
         "https://user@member.example",
         "file:///tmp",
+        "ftp://member.example",
     ] {
         assert!(Configuration::new(
             "a".into(),
@@ -474,15 +475,26 @@ async fn http_rejects_ambiguous_headers_and_bounds_every_route() {
         assert_eq!(response.headers()["cache-control"], "no-store");
         assert_eq!(response.headers()["pragma"], "no-cache");
     }
-    for host in ["", "bad/host", "bad@host"] {
+    for host in [
+        "".to_owned(),
+        "bad/host".into(),
+        "bad@host".into(),
+        "x".repeat(254),
+    ] {
         assert!(native::router(
             Door::new(config("a")),
-            BTreeSet::from([host.into()]),
+            BTreeSet::from([host]),
             Arc::new(Clock)
         )
         .is_err());
     }
     assert!(native::router(Door::new(config("a")), BTreeSet::new(), Arc::new(Clock)).is_err());
+    assert!(native::router(
+        Door::new(config("a")),
+        (0..9).map(|n| format!("localhost:{n}")).collect(),
+        Arc::new(Clock)
+    )
+    .is_err());
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -632,7 +644,7 @@ fn configuration_and_capability_limits_are_exact() {
             "a".into(),
             BTreeMap::from([(
                 Role::Member,
-                BTreeSet::from([format!("https://{}.example", "x".repeat(2048))]),
+                BTreeSet::from([format!("https://member.example/{}", "x".repeat(2048))]),
             )]),
         ),
     ] {
@@ -743,4 +755,33 @@ async fn native_client_rejects_untrusted_http_outputs() {
         native::Client::new("http://:pass@127.0.0.1", ORIGIN, token),
         Err(ErrorCode::InvalidRequest)
     ));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn native_client_refuses_truncated_http_response() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let peer = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        // Read the small known test request before returning a truncated body.
+        let mut bytes = Vec::new();
+        while !bytes.ends_with(b"\r\n\r\n") {
+            bytes.push(stream.read_u8().await.unwrap());
+        }
+        let mut body = [0; 2];
+        stream.read_exact(&mut body).await.unwrap();
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: 100\r\n\r\n{").await.unwrap();
+        stream.flush().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        stream.shutdown().await.unwrap();
+    });
+    let (_, token) = paired();
+    let client = native::Client::new(&base, ORIGIN, token).unwrap();
+    assert!(matches!(
+        client.invoke_bytes(b"{}").await,
+        Err(ErrorCode::Unavailable)
+    ));
+    peer.await.unwrap();
 }

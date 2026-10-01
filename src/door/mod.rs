@@ -136,7 +136,6 @@ impl ClientToken {
 
 struct Grant {
     origin: String,
-    role: Role,
     actions: BTreeSet<String>,
     expires: u64,
 }
@@ -244,6 +243,18 @@ impl Door {
         let mut bytes = Zeroizing::new([0u8; 32]);
         getrandom::fill(bytes.as_mut()).map_err(|_| ErrorCode::Unavailable)?;
         let token = ClientToken(Zeroizing::new(BASE64URL_NOPAD.encode(bytes.as_ref())));
+        self.insert_client(token, origin, actions, expires)
+    }
+
+    // Separate the actual insertion boundary so duplicate entropy cannot replace
+    // a live client grant. Pairing always obtains fresh OS/browser entropy first.
+    fn insert_client(
+        &mut self,
+        token: ClientToken,
+        origin: &str,
+        actions: BTreeSet<String>,
+        expires: u64,
+    ) -> Result<ClientToken> {
         let key = token_hash(token.expose_for_transport());
         if self.grants.contains_key(&key) {
             return Err(ErrorCode::Unavailable);
@@ -252,7 +263,6 @@ impl Door {
             key,
             Grant {
                 origin: origin.into(),
-                role,
                 actions,
                 expires,
             },
@@ -312,7 +322,9 @@ impl Door {
         let request: WireInvocation =
             serde_json::from_slice(bytes).map_err(|_| ErrorCode::InvalidRequest)?;
         let action = registry::action(&request.action).ok_or(ErrorCode::UnsupportedAction)?;
-        if !grant.actions.contains(&request.action) || !action.authority.permits(grant.role) {
+        // All current actions require LocalClient authority. Role-specific domain
+        // operations must introduce their actual authority check when registered.
+        if !grant.actions.contains(&request.action) {
             return Err(ErrorCode::Unauthorized);
         }
         if request.version != action.version {
@@ -320,13 +332,7 @@ impl Door {
         }
         // All projections converge here after the same scope/origin/capability check.
         let result = (action.handler)(self, &key, request.body.get())?;
-        if serde_json::to_vec(&result.0)
-            .map_err(|_| ErrorCode::Unavailable)?
-            .len()
-            > MAX_RESULT_BYTES
-        {
-            return Err(ErrorCode::Capacity);
-        }
+        check_result_size(&result.0)?;
         Ok(result)
     }
 
@@ -350,4 +356,61 @@ impl Door {
 
 fn token_hash(token: &str) -> [u8; 32] {
     Sha256::digest(token.as_bytes()).into()
+}
+
+fn check_result_size(result: &Value) -> Result<()> {
+    // Value already contains JSON types; serialization cannot reject its data.
+    if serde_json::to_vec(result)
+        .expect("Value is JSON-compatible")
+        .len()
+        > MAX_RESULT_BYTES
+    {
+        return Err(ErrorCode::Capacity);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn duplicate_capability_cannot_replace_a_live_grant_and_outputs_are_bounded() {
+        let origin = "https://member.example";
+        let config = Configuration::new(
+            "a".into(),
+            BTreeMap::from([(Role::Member, BTreeSet::from([origin.into()]))]),
+        )
+        .unwrap();
+        let mut door = Door::new(config);
+        let actions = BTreeSet::from(["runtime.status".into()]);
+        let token = door
+            .pair_client(origin, Role::Member, actions.clone(), 10, 20)
+            .unwrap();
+        let duplicate = ClientToken::from_protected_transport(Zeroizing::new(
+            token.expose_for_transport().as_bytes().to_vec(),
+        ))
+        .unwrap();
+        assert!(matches!(
+            door.insert_client(duplicate, "https://foreign.example", actions, 200),
+            Err(ErrorCode::Unavailable)
+        ));
+        assert!(matches!(
+            door.dispatch(
+                origin,
+                token.expose_for_transport(),
+                br#"{"action":"runtime.status","version":1,"body":{}}"#,
+                11
+            ),
+            Output::Ok { .. }
+        ));
+        assert!(check_result_size(&Value::String("x".repeat(MAX_RESULT_BYTES - 2))).is_ok());
+        assert_eq!(
+            check_result_size(&Value::String("x".repeat(MAX_RESULT_BYTES - 1))),
+            Err(ErrorCode::Capacity)
+        );
+    }
 }
