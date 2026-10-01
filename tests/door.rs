@@ -59,6 +59,20 @@ fn unavailable_owners_never_release_preload() {
     assert_eq!(response["status"], "ok");
     assert_eq!(response["result"]["community"], "community-a");
     assert_eq!(response["result"]["preload"], "unavailable");
+    assert_eq!(
+        call(&mut door, &token, "board.status", 11),
+        error(ErrorCode::Unavailable)
+    );
+    let board = catalog()
+        .into_iter()
+        .find(|a| a.action == "board.status")
+        .unwrap();
+    assert_eq!(board.family, Family::Board);
+    assert_eq!(
+        board.result["required"],
+        json!(["connection", "groups", "rooms"])
+    );
+    assert!(surface::bundle()["types"]["GroupView"].is_object());
     assert_eq!(response["result"]["owners"].as_object().unwrap().len(), 5);
     for status in response["result"]["owners"].as_object().unwrap().values() {
         assert_eq!(status, "unavailable");

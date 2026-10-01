@@ -23,6 +23,7 @@ include = [
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+cbrd = { git = "https://github.com/corbet-libs/cbrd", branch = "main" }
 schemars = "1"
 url = "2"
 getrandom = "0.3"

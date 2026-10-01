@@ -16,6 +16,9 @@ for (const action of registry.actions) {
   names.push(`  ${JSON.stringify(action.action)}: { body: ${name}.Body; result: ${name}.Result };`);
   versions[action.action] = action.version;
 }
+for (const [name, schema] of Object.entries(registry.types ?? {})) {
+  types.push(await compile({ ...schema, title: name }, name, { bannerComment: '' }));
+}
 const outputType = await compile(registry.output, 'Output', { bannerComment: '' });
 const invocation = await compile(registry.invocation, 'Invocation', { bannerComment: '' });
 const source = `// Generated from cmsg's Rust registry. Do not edit.\n${types.join('\n')}\n${outputType}\n${invocation}
