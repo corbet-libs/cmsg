@@ -5,7 +5,10 @@ effect and bounded errors. HTTP, MCP tools, CLI command descriptions and
 TypeScript are projections of this registry, not separate definitions.
 
 The current implemented actions are `runtime.status`, `runtime.describe`, and
-`client.revoke`. Domain owner ports are still being integrated. Runtime status
+`client.revoke`. `board.status` projects the real `cbrd::Status` result schema
+and returns `Unavailable` until the Board runtime is bound. The generated
+`GroupView` type is the owner cgrp type reexported by cbrd, not a copied DTO.
+Domain owner ports are still being integrated. Runtime status
 reports every missing facade as unavailable and blocks preload. No membership,
 balance, transport, profile or group success is fabricated.
 
