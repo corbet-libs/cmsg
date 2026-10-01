@@ -120,7 +120,8 @@ jobs:
           tool: cargo-llvm-cov
       - run: cargo llvm-cov --locked --branch --all-targets --json --output-path coverage.json --ignore-filename-regex '/tests/'
       - run: cargo llvm-cov report --lcov --output-path coverage.lcov --ignore-filename-regex '/tests/'
-      - run: python3 .ci/check-source-coverage.py coverage.lcov
+      - run: python3 .ci/test-source-coverage.py
+      - run: python3 .ci/check-source-coverage.py coverage.lcov coverage.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
