@@ -36,6 +36,20 @@ pub enum ErrorCode {
     Reconcile,
 }
 
+impl ErrorCode {
+    /// Stable process projection: 64 invalid request/version/action, 77 denied,
+    /// 69 unavailable, 75 transient capacity/clock/reconciliation refusal.
+    /// A failed action never receives the success exit code zero.
+    pub const fn exit_code(self) -> u8 {
+        match self {
+            Self::InvalidRequest | Self::UnsupportedAction | Self::UnsupportedVersion => 64,
+            Self::Unauthorized => 77,
+            Self::Unavailable => 69,
+            Self::Capacity | Self::Clock | Self::Reconcile => 75,
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, ErrorCode>;
 
 #[derive(

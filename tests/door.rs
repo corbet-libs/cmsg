@@ -300,6 +300,18 @@ fn projections_share_typed_action_bodies_and_refusal_semantics() {
         assert_eq!(action.body["additionalProperties"], false);
     }
     assert_eq!(bundle["cli"]["commands"], bundle["actions"]);
+    for (failure, exit) in [
+        (ErrorCode::InvalidRequest, 64),
+        (ErrorCode::UnsupportedAction, 64),
+        (ErrorCode::UnsupportedVersion, 64),
+        (ErrorCode::Unauthorized, 77),
+        (ErrorCode::Unavailable, 69),
+        (ErrorCode::Capacity, 75),
+        (ErrorCode::Clock, 75),
+        (ErrorCode::Reconcile, 75),
+    ] {
+        assert_eq!(failure.exit_code(), exit);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

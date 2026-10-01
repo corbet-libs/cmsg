@@ -376,6 +376,7 @@ impl Inbox {
     }
     /// Copy transient connection permissions only while staging this same running
     /// client. Deserializing a checkpoint never calls this method.
+    #[cfg(target_arch = "wasm32")]
     pub(crate) fn copy_live_runtime(&mut self, original: &Inbox) {
         self.runtime = original.runtime.clone();
         self.state.live = original.state.live.clone();

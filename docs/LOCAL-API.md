@@ -22,6 +22,12 @@ cannot select another role or community. Responses are `{status:"ok", result,
 events}` or `{status:"error", error}`. Errors contain no member values or
 dependency details. Key and PRF values have no API path.
 
+CLI adapters use the owner's `ErrorCode::exit_code()`: 64 for malformed or
+unsupported requests, 77 for denied authority, 69 for unavailable integration,
+and 75 for capacity, clock or reconciliation refusals. Success is zero.
+Keep incoming request bytes intact until `Door::dispatch`; parsing them into a
+generic JSON value first would erase duplicate fields before the typed decoder.
+
 Native `door::native::router` projects POST `/v1/<action>` with a typed JSON
 body. Require an exact Host, Origin, application/json and bearer local client
 capability. Bind the router to a local listener; do not install request/body

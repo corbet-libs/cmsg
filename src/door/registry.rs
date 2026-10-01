@@ -46,6 +46,8 @@ pub struct ActionDescription {
     pub error: Value,
 }
 
+type Handler = fn(&mut Door, &[u8; 32], &str) -> Result<(Value, Vec<Event>)>;
+
 pub(super) struct Action {
     name: &'static str,
     pub version: u16,
@@ -54,7 +56,7 @@ pub(super) struct Action {
     effect: Effect,
     body: fn() -> Value,
     result: fn() -> Value,
-    pub handler: fn(&mut Door, &[u8; 32], &str) -> Result<(Value, Vec<Event>)>,
+    pub handler: Handler,
 }
 
 fn schema<T: JsonSchema>() -> Value {
