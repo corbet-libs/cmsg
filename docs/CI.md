@@ -18,3 +18,9 @@ artifact is executed under the merge token.
 
 References: [LLVM coverage](https://github.com/taiki-e/cargo-llvm-cov),
 [workflow security](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+
+The strict gate uses every source line and branch emitted by upstream LLVM LCOV
+from the same execution as the retained JSON diagnostic. Both counts must be
+exactly complete; no production exclusions apply. This is source coverage, not
+coverage of each separate generic instantiation. Fixture sources under tests/
+are excluded from the production report and are still executed normally.
