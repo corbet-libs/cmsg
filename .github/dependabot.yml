@@ -72,3 +72,11 @@ updates:
     groups:
       compatible:
         patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /tools
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    groups:
+      compatible:
+        patterns: ["*"]
