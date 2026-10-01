@@ -102,7 +102,7 @@ jobs:
           name: formatting
           path: formatting.patch
   coverage:
-    needs: check
+    needs: dependency-policy
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
