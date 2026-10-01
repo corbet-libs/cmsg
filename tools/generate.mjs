@@ -22,6 +22,9 @@ const source = `// Generated from cmsg's Rust registry. Do not edit.\n${types.jo
 export interface Actions {\n${names.join('\n')}\n}
 export const actionVersions = ${JSON.stringify(versions, null, 2)} as const;
 export type Transport = (request: Invocation) => Promise<Output>;
+export type ActionOutput<K extends keyof Actions> =
+  | (Omit<Extract<Output, { status: 'ok' }>, 'result'> & { result: Actions[K]['result'] })
+  | Extract<Output, { status: 'error' }>;
 export class CmsgError extends Error {
   constructor(public readonly code: Extract<Output, { status: 'error' }>['error']) {
     super(code);
@@ -29,9 +32,13 @@ export class CmsgError extends Error {
   }
 }
 export function createCmsgClient(transport: Transport) {
+  async function invoke<K extends keyof Actions>(action: K, body: Actions[K]['body']): Promise<ActionOutput<K>> {
+    return await transport({ action, version: actionVersions[action], body }) as ActionOutput<K>;
+  }
   return {
+    invoke,
     async call<K extends keyof Actions>(action: K, body: Actions[K]['body']): Promise<Actions[K]['result']> {
-      const response = await transport({ action, version: actionVersions[action], body });
+      const response = await invoke(action, body);
       if (response.status === 'error') throw new CmsgError(response.error);
       return response.result as Actions[K]['result'];
     }
