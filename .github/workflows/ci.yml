@@ -25,6 +25,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - run: |
+          python3 .ci/check-first-party.py
           cargo update
           rustc -Vv > resolution.txt
           date -u +%FT%TZ >> resolution.txt
