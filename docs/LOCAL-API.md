@@ -93,3 +93,10 @@ Output or mismatched status returns `Reconcile`: the action may already have
 committed. Valid owner Output is preserved exactly. Local pre-send request size
 refusal remains `Capacity`. A caller must reconcile through owner state, never
 blindly retry a mutation. This uses the maintained [reqwest never-retry policy](https://docs.rs/reqwest/latest/reqwest/retry/fn.never.html).
+
+The generated TypeScript client also runs against an actual native Door in CI.
+A test-only host transfers its local capability over an inherited private pipe;
+the client checks status/discovery, unavailable Board, strict duplicate decoding,
+origin refusal, revocation events and subsequent denial over real loopback HTTP.
+This establishes local generated-client parity, not production bootstrap or remote
+member workflows. The host requires the non-default `conformance` feature.
