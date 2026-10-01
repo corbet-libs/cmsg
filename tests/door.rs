@@ -573,7 +573,7 @@ async fn native_client_executes_real_loopback_door_and_preserves_raw_input() {
     let _ = server.await;
     assert!(matches!(
         client.invoke_bytes(b"{}").await,
-        Err(ErrorCode::Unavailable)
+        Err(ErrorCode::Reconcile)
     ));
     for base in [
         "not a url",
@@ -719,7 +719,6 @@ async fn native_client_rejects_untrusted_http_outputs() {
         ),
     ];
     for (media, cache, status, body) in cases {
-        let oversized = body.len() > MAX_RESULT_BYTES;
         let app = Router::new().route(
             "/invoke",
             post(move || {
@@ -739,9 +738,10 @@ async fn native_client_rejects_untrusted_http_outputs() {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let (_, token) = paired();
         let client = native::Client::new(&base, ORIGIN, token).unwrap();
-        assert!(
-            matches!(client.invoke_bytes(b"{}").await, Err(code) if code == if oversized {ErrorCode::Capacity} else {ErrorCode::Unavailable})
-        );
+        assert!(matches!(
+            client.invoke_bytes(b"{}").await,
+            Err(ErrorCode::Reconcile)
+        ));
         server.abort();
         let _ = server.await;
     }
@@ -781,7 +781,90 @@ async fn native_client_refuses_truncated_http_response() {
     let client = native::Client::new(&base, ORIGIN, token).unwrap();
     assert!(matches!(
         client.invoke_bytes(b"{}").await,
-        Err(ErrorCode::Unavailable)
+        Err(ErrorCode::Reconcile)
     ));
     peer.await.unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn lost_mutation_response_requires_reconciliation_and_is_never_retried() {
+    use axum::{
+        body::{Body, Bytes},
+        extract::Request,
+        routing::post,
+        Router,
+    };
+    use futures_util::stream;
+    use http_body_util::BodyExt;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tower::ServiceExt;
+    struct Clock;
+    impl native::Clock for Clock {
+        fn now(&self) -> u64 {
+            11
+        }
+    }
+    let (door, token) = paired();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let actual =
+        native::router(door, BTreeSet::from([address.to_string()]), Arc::new(Clock)).unwrap();
+    let count = Arc::new(AtomicUsize::new(0));
+    let proxy_count = count.clone();
+    // This proxy executes the actual Door and only damages its first response.
+    // The durable/local effect is never supplied by a test success callback.
+    let proxy = Router::new().route(
+        "/invoke",
+        post(move |request: Request| {
+            let actual = actual.clone();
+            let count = proxy_count.clone();
+            async move {
+                let response = actual.oneshot(request).await.unwrap();
+                if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                    assert!(response.status().is_success());
+                    let (mut parts, body) = response.into_parts();
+                    let bytes = body.collect().await.unwrap().to_bytes();
+                    parts
+                        .headers
+                        .insert("content-length", bytes.len().to_string().parse().unwrap());
+                    let original: Value = serde_json::from_slice(&bytes).unwrap();
+                    assert_eq!(original["result"]["revoked"], true);
+                    let short = Bytes::copy_from_slice(&bytes[..bytes.len() - 1]);
+                    let body =
+                        Body::from_stream(stream::once(
+                            async move { Ok::<_, std::io::Error>(short) },
+                        ));
+                    // Original content length exceeds the truncated body.
+                    axum::http::Response::from_parts(parts, body)
+                } else {
+                    response
+                }
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, proxy).await.unwrap() });
+    let client = native::Client::new(&format!("http://{address}"), ORIGIN, token).unwrap();
+    assert!(matches!(
+        client
+            .invoke_bytes(br#"{"action":"client.revoke","version":1,"body":{}}"#)
+            .await,
+        Err(ErrorCode::Reconcile)
+    ));
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        value(
+            client
+                .invoke_bytes(br#"{"action":"runtime.status","version":1,"body":{}}"#)
+                .await
+                .unwrap()
+        ),
+        error(ErrorCode::Unauthorized)
+    );
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+    server.abort();
+    let _ = server.await;
 }
