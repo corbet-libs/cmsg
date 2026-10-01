@@ -41,7 +41,13 @@ uses maintained `json-schema-to-typescript` to emit `client.ts`:
 ```typescript
 const client = createCmsgClient(pairedLocalTransport);
 const status = await client.call('runtime.status', {});
+// Preserve the complete owner envelope and events for effectful operations.
+const outcome = await client.invoke('client.revoke', {});
 ```
+
+`invoke` preserves the typed result, events and owner refusal envelope. `call`
+is a result-only convenience for reads; consumers needing effect events use
+`invoke`. Neither operation adds retries or domain logic.
 
 The transport sends the invocation to the embedded local door; it does not
 implement domain behavior. Generated artifacts include the exact Rust registry
