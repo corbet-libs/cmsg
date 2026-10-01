@@ -69,3 +69,11 @@ The integration test starts a real Axum loopback Door, pairs actual owner
 capabilities in trusted test setup, and invokes status/description/revocation
 and refusal paths through reqwest. This proves local transport, not production
 pairing bootstrap, member authority or the full network demonstration.
+
+A separate native process can receive the opaque capability through an inherited
+private pipe/socket, then call
+`ClientToken::from_protected_transport(Zeroizing<Vec<u8>>)`. Import checks only
+fixed canonical encoding; the Door still authorizes the digest, origin, expiry
+and explicit action set. Imported random bytes grant nothing. The frontend
+adapter owns bounded pipe reads; tokens must not enter argv, environment values,
+logs or raw files. This is transport plumbing, not a production pairing bootstrap.

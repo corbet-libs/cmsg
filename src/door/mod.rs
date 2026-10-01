@@ -109,6 +109,27 @@ fn validate_origin(value: &str) -> Result<()> {
 pub struct ClientToken(Zeroizing<String>);
 
 impl ClientToken {
+    /// Receive an existing capability over a private inherited pipe/socket from
+    /// the trusted pairing host. Import is encoding validation, not pairing or
+    /// authorization: unknown tokens are still rejected by the Door. Never use
+    /// command-line arguments, environment variables, logs or raw token files.
+    pub fn from_protected_transport(bytes: Zeroizing<Vec<u8>>) -> Result<Self> {
+        if bytes.len() != 43 {
+            return Err(ErrorCode::Unauthorized);
+        }
+        let decoded = Zeroizing::new(
+            BASE64URL_NOPAD
+                .decode(&bytes)
+                .map_err(|_| ErrorCode::Unauthorized)?,
+        );
+        if decoded.len() != 32 {
+            return Err(ErrorCode::Unauthorized);
+        }
+        // Strict base64url decode above guarantees ASCII, so UTF-8 is infallible.
+        let text = std::str::from_utf8(&bytes).expect("base64url is ASCII");
+        Ok(Self(Zeroizing::new(text.to_owned())))
+    }
+
     /// Hand to the paired client's protected transport; never log or persist raw.
     pub fn expose_for_transport(&self) -> &str {
         &self.0

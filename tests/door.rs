@@ -583,3 +583,34 @@ async fn native_client_executes_real_loopback_door_and_preserves_raw_input() {
     let (_, token) = paired();
     assert!(native::Client::new("http://[::1]:3000", ORIGIN, token).is_ok());
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn imported_capability_is_only_an_encoding_until_the_door_authorizes_it() {
+    let (mut door, token) = paired();
+    let received = ClientToken::from_protected_transport(zeroize::Zeroizing::new(
+        token.expose_for_transport().as_bytes().to_vec(),
+    ))
+    .unwrap();
+    assert_eq!(
+        call(&mut door, &received, "runtime.status", 11)["status"],
+        "ok"
+    );
+    door.revoke(&token);
+    assert_eq!(
+        call(&mut door, &received, "runtime.status", 11),
+        error(ErrorCode::Unauthorized)
+    );
+    for bytes in [vec![], vec![b'!'; 43], vec![b'A'; 44], vec![255; 43]] {
+        assert!(matches!(
+            ClientToken::from_protected_transport(zeroize::Zeroizing::new(bytes)),
+            Err(ErrorCode::Unauthorized)
+        ));
+    }
+    let unknown =
+        ClientToken::from_protected_transport(zeroize::Zeroizing::new(vec![b'A'; 43])).unwrap();
+    assert_eq!(
+        call(&mut door, &unknown, "runtime.status", 11),
+        error(ErrorCode::Unauthorized)
+    );
+}
