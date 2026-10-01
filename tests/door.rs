@@ -614,3 +614,133 @@ fn imported_capability_is_only_an_encoding_until_the_door_authorizes_it() {
         error(ErrorCode::Unauthorized)
     );
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+fn configuration_and_capability_limits_are_exact() {
+    for (community, origins) in [
+        ("x".repeat(254), BTreeMap::new()),
+        ("a".into(), BTreeMap::new()),
+        (
+            "a".into(),
+            BTreeMap::from([(
+                Role::Member,
+                (0..9).map(|n| format!("https://x{n}.example")).collect(),
+            )]),
+        ),
+        (
+            "a".into(),
+            BTreeMap::from([(
+                Role::Member,
+                BTreeSet::from([format!("https://{}.example", "x".repeat(2048))]),
+            )]),
+        ),
+    ] {
+        assert!(Configuration::new(community, origins).is_err());
+    }
+    for origin in ["http://localhost:3000", "http://[::1]:3000"] {
+        assert!(Configuration::new(
+            "a".into(),
+            BTreeMap::from([(Role::Member, BTreeSet::from([origin.into()]))])
+        )
+        .is_ok());
+    }
+    let (mut door, token) = paired();
+    assert!(matches!(
+        door.pair_client(ORIGIN, Role::Root, actions(), 11, 20),
+        Err(ErrorCode::Unauthorized)
+    ));
+    let mut too_many = actions();
+    too_many.insert("unknown".into());
+    assert!(matches!(
+        door.pair_client(ORIGIN, Role::Member, too_many, 11, 20),
+        Err(ErrorCode::Unauthorized)
+    ));
+    assert!(matches!(
+        door.pair_client(ORIGIN, Role::Member, actions(), 10, 20),
+        Err(ErrorCode::Clock)
+    ));
+    assert_eq!(
+        value(door.dispatch(&"x".repeat(2049), token.expose_for_transport(), b"{}", 11)),
+        error(ErrorCode::Unauthorized)
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn native_client_rejects_untrusted_http_outputs() {
+    use axum::{
+        body::Body,
+        http::{Response, StatusCode},
+        routing::post,
+        Router,
+    };
+    // Real loopback HTTP peers exercise the client protocol boundary. These
+    // deliberately malformed outputs are never domain-success fixtures.
+    let cases = [
+        ("text/plain", "no-store", 200, b"{}".to_vec()),
+        ("application/json", "public", 200, b"{}".to_vec()),
+        ("application/json", "no-store", 200, b"not json".to_vec()),
+        (
+            "application/json",
+            "no-store",
+            200,
+            br#"{"status":"error","error":"unauthorized"}"#.to_vec(),
+        ),
+        (
+            "application/json",
+            "no-store",
+            403,
+            br#"{"status":"ok","result":null,"events":[]}"#.to_vec(),
+        ),
+        (
+            "application/json",
+            "no-store",
+            200,
+            vec![b' '; MAX_RESULT_BYTES + 1],
+        ),
+        (
+            "application/json",
+            "no-store",
+            200,
+            br#"{"status":"error","error":"unauthorized","extra":1}"#.to_vec(),
+        ),
+    ];
+    for (media, cache, status, body) in cases {
+        let oversized = body.len() > MAX_RESULT_BYTES;
+        let app = Router::new().route(
+            "/invoke",
+            post(move || {
+                let body = body.clone();
+                async move {
+                    Response::builder()
+                        .status(StatusCode::from_u16(status).unwrap())
+                        .header("content-type", media)
+                        .header("cache-control", cache)
+                        .body(Body::from(body))
+                        .unwrap()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (_, token) = paired();
+        let client = native::Client::new(&base, ORIGIN, token).unwrap();
+        assert!(
+            matches!(client.invoke_bytes(b"{}").await, Err(code) if code == if oversized {ErrorCode::Capacity} else {ErrorCode::Unavailable})
+        );
+        server.abort();
+        let _ = server.await;
+    }
+    let (_, token) = paired();
+    assert!(matches!(
+        native::Client::new("http://127.0.0.1", "null", token),
+        Err(ErrorCode::InvalidRequest)
+    ));
+    let (_, token) = paired();
+    assert!(matches!(
+        native::Client::new("http://:pass@127.0.0.1", ORIGIN, token),
+        Err(ErrorCode::InvalidRequest)
+    ));
+}
