@@ -110,6 +110,12 @@ def check(lcov, raw_json, root, annotated, target='native'):
     # and therefore cannot detect a deleted DA record reliably.
     annotated_lines, annotated_files = {}, set()
     current = None
+    # Upstream omits the filename heading for a single source file. Only that
+    # unambiguous inventory may bind a heading-free annotated report.
+    has_heading = any(row.endswith('.rs:') and row.startswith('/') for row in annotated.splitlines())
+    if len(files) == 1 and not has_heading:
+        current = next(iter(files))
+        annotated_files.add(current)
     for record in annotated.splitlines():
         if record.endswith('.rs:') and record.startswith('/'):
             current = source_path(record[:-1])

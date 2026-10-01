@@ -84,7 +84,11 @@ jobs:
           npm ci --prefix tools --ignore-scripts --no-audit --no-fund
           node tools/generate.mjs registry.json generated
           node tools/check.mjs registry.json
-          tools/node_modules/.bin/tsc --noEmit --strict --target es2022 --module nodenext --moduleResolution nodenext generated/client.ts
+          tools/node_modules/.bin/tsc --outDir generated/runtime --strict --target es2022 --module nodenext --moduleResolution nodenext generated/client.ts
+      - name: Execute generated TypeScript against the actual local Door
+        run: |
+          cargo build --locked --features conformance --example client-conformance
+          node tools/client-conformance.mjs target/debug/examples/client-conformance
       - uses: actions/upload-artifact@v4
         with:
           name: generated-local-api

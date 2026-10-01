@@ -64,6 +64,9 @@ class GateTests(unittest.TestCase):
                 gate.check(LCOV, report, ROOT, TEXT)
 
 
+    def test_upstream_single_file_report_omits_heading(self):
+        gate.check(LCOV, RAW, ROOT, TEXT.split('\n', 1)[1])
+
     def test_duplicate_raw_source_refused(self):
         raw = copy.deepcopy(RAW)
         raw['data'][0]['files'].append(copy.deepcopy(raw['data'][0]['files'][0]))
