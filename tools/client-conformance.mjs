@@ -51,6 +51,8 @@ try {
 } finally {
   clearTimeout(timer);
   lines.close();
-  child.kill();
-  await once(child, 'exit');
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill();
+    await once(child, 'exit');
+  }
 }
