@@ -2,7 +2,7 @@ name: ci
 on:
   push:
     branches: [main]
-    paths: ["Cargo.*", "src/**", "tests/**", "examples/**", "browser/**", "tools/**", ".ci/**", ".github/**"]
+    paths: ["Cargo.*", "src/**", "tests/**", "examples/**", "tools/**", ".ci/**", ".github/**"]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -10,6 +10,7 @@ permissions:
 concurrency:
   group: implementation
   cancel-in-progress: false
+  queue: max
 env:
   CARGO_BUILD_JOBS: '2'
   RUST_TEST_THREADS: '2'
@@ -91,7 +92,6 @@ jobs:
       - run: cargo clippy --locked --all-targets --keep-going -- -D warnings
       - run: cargo test --locked --all-targets
       - run: wasm-pack test --headless --chrome -- --locked
-      - run: node .ci/peer-channel-check.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

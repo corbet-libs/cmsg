@@ -5,10 +5,10 @@ stable Rust natively and in a real headless browser. A separate nightly compiler
 is needed for LLVM branch instrumentation. Both integer line and branch counts
 must be fully covered. There are no production coverage exclusions.
 
-The legacy monolith remains during owner extraction. Its coverage debt is real:
-adding a strict gate does not claim that the gate passes. Historical component,
-mobile and Tor workflows remain manually dispatchable; their synthetic authority
-fixtures do not establish acceptance of current membership or admission.
+The retired monolith and its evidence remain in immutable Git history, indexed
+in RETIREMENT.md. The new door gate covers only current cmsg production sources.
+It neither replaces leaf regression obligations nor proves current membership,
+accounting, Tor networking or full-system acceptance.
 Automatic validation is serialized. Expensive scale/churn belongs on owned CI.
 
 Dependabot covers every tracked manifest. Auto-merge uses only trusted workflow
