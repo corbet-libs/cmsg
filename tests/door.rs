@@ -484,3 +484,102 @@ async fn http_rejects_ambiguous_headers_and_bounds_every_route() {
     }
     assert!(native::router(Door::new(config("a")), BTreeSet::new(), Arc::new(Clock)).is_err());
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn native_client_executes_real_loopback_door_and_preserves_raw_input() {
+    use std::sync::Arc;
+    struct Clock;
+    impl native::Clock for Clock {
+        fn now(&self) -> u64 {
+            11
+        }
+    }
+    let (mut door, token) = paired();
+    let other_token = door
+        .pair_client("https://admin.example", Role::Admin, actions(), 10, 100)
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let base = format!("http://{address}");
+    let app = native::router(door, BTreeSet::from([address.to_string()]), Arc::new(Clock)).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = native::Client::new(&base, ORIGIN, token).unwrap();
+    let status = client
+        .invoke_bytes(br#"{"action":"runtime.status","version":1,"body":{}}"#)
+        .await
+        .unwrap();
+    assert_eq!(value(status)["result"]["preload"], "unavailable");
+    let description = client
+        .invoke_bytes(br#"{"action":"runtime.describe","version":1,"body":{}}"#)
+        .await
+        .unwrap();
+    assert_eq!(value(description)["result"], surface::bundle()["actions"]);
+    assert_eq!(value(client.invoke_bytes(br#"{"action":"runtime.status","action":"client.revoke","version":1,"body":{}}"#).await.unwrap()),error(ErrorCode::InvalidRequest));
+    assert_eq!(
+        value(
+            client
+                .invoke_bytes(br#"{"action":"runtime.status","version":2,"body":{}}"#)
+                .await
+                .unwrap()
+        ),
+        error(ErrorCode::UnsupportedVersion)
+    );
+    assert!(matches!(
+        client.invoke_bytes(&vec![0; MAX_BODY_BYTES + 1]).await,
+        Err(ErrorCode::Capacity)
+    ));
+    let foreign = native::Client::new(&base, ORIGIN, other_token).unwrap();
+    assert_eq!(
+        value(
+            foreign
+                .invoke_bytes(br#"{"action":"runtime.status","version":1,"body":{}}"#)
+                .await
+                .unwrap()
+        ),
+        error(ErrorCode::Unauthorized)
+    );
+    assert_eq!(
+        value(
+            client
+                .invoke_bytes(br#"{"action":"client.revoke","version":1,"body":{}}"#)
+                .await
+                .unwrap()
+        )["result"]["revoked"],
+        true
+    );
+    assert_eq!(
+        value(
+            client
+                .invoke_bytes(br#"{"action":"runtime.status","version":1,"body":{}}"#)
+                .await
+                .unwrap()
+        ),
+        error(ErrorCode::Unauthorized)
+    );
+    server.abort();
+    let _ = server.await;
+    assert!(matches!(
+        client.invoke_bytes(b"{}").await,
+        Err(ErrorCode::Unavailable)
+    ));
+    for base in [
+        "not a url",
+        "http://example.test",
+        "https://127.0.0.1",
+        "http://localhost",
+        "http://user@127.0.0.1",
+        "http://u:p@127.0.0.1",
+        "http://127.0.0.1/path",
+        "http://127.0.0.1?query",
+        "http://127.0.0.1#fragment",
+    ] {
+        let (_, token) = paired();
+        assert!(matches!(
+            native::Client::new(base, ORIGIN, token),
+            Err(ErrorCode::InvalidRequest)
+        ));
+    }
+    let (_, token) = paired();
+    assert!(native::Client::new("http://[::1]:3000", ORIGIN, token).is_ok());
+}

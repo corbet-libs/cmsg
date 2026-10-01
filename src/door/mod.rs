@@ -132,7 +132,7 @@ pub struct Invocation {
 }
 
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "status", rename_all = "snake_case")]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Output {
     Ok { result: Value, events: Vec<Event> },
     Error { error: ErrorCode },
