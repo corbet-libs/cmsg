@@ -150,8 +150,11 @@ fn arbitrary_peers_cannot_choose_clearnet_routes() {
     ] {
         assert!(OnionEndpoint::parse(host, 80).is_err(), "accepted {host}");
     }
-    assert!(OnionTransport::new("1.2.3.4:9050".parse().unwrap()).is_err());
-    assert!(OnionTransport::new("127.0.0.1:9050".parse().unwrap()).is_ok());
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        assert!(OnionTransport::new("1.2.3.4:9050".parse().unwrap()).is_err());
+        assert!(OnionTransport::new("127.0.0.1:9050".parse().unwrap()).is_ok());
+    }
 }
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test]
