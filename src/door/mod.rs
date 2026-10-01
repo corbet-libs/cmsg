@@ -117,15 +117,13 @@ impl ClientToken {
         if bytes.len() != 43 {
             return Err(ErrorCode::Unauthorized);
         }
-        let decoded = Zeroizing::new(
+        let _decoded = Zeroizing::new(
             BASE64URL_NOPAD
                 .decode(&bytes)
                 .map_err(|_| ErrorCode::Unauthorized)?,
         );
-        if decoded.len() != 32 {
-            return Err(ErrorCode::Unauthorized);
-        }
-        // Strict base64url decode above guarantees ASCII, so UTF-8 is infallible.
+        // Strict 43-byte base64url is exactly 32 decoded bytes and guarantees
+        // ASCII, so UTF-8 is infallible.
         let text = std::str::from_utf8(&bytes).expect("base64url is ASCII");
         Ok(Self(Zeroizing::new(text.to_owned())))
     }
@@ -276,13 +274,7 @@ impl Door {
         }
     }
 
-    fn invoke(
-        &mut self,
-        origin: &str,
-        token: &str,
-        bytes: &[u8],
-        now: u64,
-    ) -> Result<(Value, Vec<Event>)> {
+    fn authenticate(&mut self, origin: &str, token: &str, now: u64) -> Result<[u8; 32]> {
         self.observe(now)?;
         if token.len() != 43 || origin.len() > 2048 {
             return Err(ErrorCode::Unauthorized);
@@ -292,6 +284,21 @@ impl Door {
         if grant.origin != origin {
             return Err(ErrorCode::Unauthorized);
         }
+        Ok(key)
+    }
+
+    fn invoke(
+        &mut self,
+        origin: &str,
+        token: &str,
+        bytes: &[u8],
+        now: u64,
+    ) -> Result<(Value, Vec<Event>)> {
+        let key = self.authenticate(origin, token, now)?;
+        let grant = self
+            .grants
+            .get(&key)
+            .expect("authentication established this unchanged grant");
         if bytes.len() > MAX_BODY_BYTES {
             return Err(ErrorCode::Capacity);
         }

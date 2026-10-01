@@ -22,6 +22,7 @@ struct HttpState {
     door: Arc<Mutex<Door>>,
     hosts: BTreeSet<String>,
     clock: Arc<dyn Clock>,
+    requests: Arc<tokio::sync::Semaphore>,
 }
 
 pub fn router(door: Door, hosts: BTreeSet<String>, clock: Arc<dyn Clock>) -> Result<Router> {
@@ -40,6 +41,7 @@ pub fn router(door: Door, hosts: BTreeSet<String>, clock: Arc<dyn Clock>) -> Res
             door: Arc::new(Mutex::new(door)),
             hosts,
             clock,
+            requests: Arc::new(tokio::sync::Semaphore::new(MAX_CLIENTS)),
         })
         .fallback(|| async {
             response(Output::Error {
@@ -97,11 +99,35 @@ async fn dispatch(state: HttpState, action: Option<String>, request: Request) ->
     }
     let origin = origin.to_owned();
     let token = Zeroizing::new(token.to_owned());
-    let bytes = match to_bytes(request.into_body(), MAX_BODY_BYTES).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
+    let authorized = match state.door.lock() {
+        Ok(mut door) => door
+            .authenticate(&origin, &token, state.clock.now())
+            .map(|_| ()),
+        Err(_) => Err(ErrorCode::Unavailable),
+    };
+    if let Err(error) = authorized {
+        return response(Output::Error { error });
+    }
+    let Ok(_permit) = state.requests.try_acquire() else {
+        return response(Output::Error {
+            error: ErrorCode::Capacity,
+        });
+    };
+    let bytes = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        to_bytes(request.into_body(), MAX_BODY_BYTES),
+    )
+    .await
+    {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(_)) => {
             return response(Output::Error {
                 error: ErrorCode::Capacity,
+            })
+        }
+        Err(_) => {
+            return response(Output::Error {
+                error: ErrorCode::Unavailable,
             })
         }
     };
