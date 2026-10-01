@@ -32,6 +32,8 @@ jobs:
           cargo update
           npm update --prefix tools --package-lock-only --ignore-scripts --no-audit --no-fund
           rustc -Vv > resolution.txt
+          node --version >> resolution.txt
+          npm --version >> resolution.txt
           date -u +%FT%TZ >> resolution.txt
           sha256sum Cargo.lock tools/package-lock.json >> resolution.txt
       - uses: actions/upload-artifact@v4
